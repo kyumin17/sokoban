@@ -1,9 +1,7 @@
 section .data
     ;style
-    BOLD db 27, "[1m"
-    RESET db 27, "[0m"
-    STYLE_LEN equ $ - RESET
     REMOVE_CURSOR db 27, "[?25l"
+    REMOVE_CURSOR_LEN equ $ - REMOVE_CURSOR
     TOTAL_RESET db 27, "[H", 27, "[?25h"
     TOTAL_RESET_LEN equ $ - TOTAL_RESET
     CLEAR db 27, "[2J", 27, "[3J", 27, "[H"
@@ -18,26 +16,27 @@ section .data
     MOVE_LEN equ $ - MOVE
 
     ;text
-    TITLE db "SOKOBAN", 10, 0
+    TITLE db 27, "[1m", "SOKOBAN", 27, "[0m", 0
     TITLE_LEN equ $ - TITLE
-    START db "start", 10, 0
+    START db "start", 0
     START_LEN equ $ - START
-    EXIT db "exit", 10, 0
+    EXIT db "exit", 0
     EXIT_LEN equ $ - EXIT
-    ARROW db ">", 10, 0
-    ARROW_LEN equ $ - ARROW
+    ARROW db ">", 0
     SPACE db " ", 0
-    SPACE_LEN equ $ - SPACE
-    PLAYER db 27, "[38;5;15m", 0xE2, 0x97, 0x8F, " ", 27, "[0m", 0
+
+    PLAYER db 27, "[38;5;15m", 0xE2, 0x97, 0x8F, 27, "[0m", 0
     PLAYER_LEN equ $ - PLAYER
     WALL db 27, "[48;5;245m", "  ", 27, "[0m", 0
     WALL_LEN equ $ - WALL
-    GROUND db 27, "  ", 0
-    GROUND_LEN equ $ - GROUND
-    BOX db 27, "[38;5;130m", 0xE2, 0x98, 0x92, " ", 27, "[0m", 0
+    BOX db 27, "[38;5;130m", 0xE2, 0x98, 0x92, 27, "[0m", 0
     BOX_LEN equ $ - BOX
-    TARGET db 27, "[38;5;14m", 0xE2, 0x97, 0x86, " ", 27, "[0m", 0
+    ACTIVATE_BOX db 27, "[38;5;11m", 0xE2, 0x98, 0x92, 27, "[0m", 0
+    ACTIVATE_BOX_LEN equ $ - ACTIVATE_BOX
+    TARGET db 27, "[38;5;14m", 0xE2, 0x97, 0x86, 27, "[0m", 0
     TARGET_LEN equ $ - TARGET
+    ERASER db "  ", 0
+    ERASER_LEN equ $ - ERASER
 
     ;setting
     WIDTH equ 25
@@ -72,16 +71,12 @@ start_page:
     call remove_cursor
     call clear_page
     mov byte [menu], 0
-
-    call bold_style
     
     mov rdi, 24
     mov rsi, 4
     mov rdx, TITLE
     mov rcx, TITLE_LEN
     call pos_write
-
-    call reset_style
 
     mov rdi, 26
     mov rsi, 8
@@ -98,7 +93,7 @@ start_page:
     mov rdi, 1
     mov rsi, 12
     mov rdx, SPACE
-    mov rcx, SPACE_LEN
+    mov rcx, 1
     call pos_write
 
 .draw_arrow:
@@ -106,21 +101,21 @@ start_page:
     movzx rsi, byte [menu]
     add rsi, 7
     mov rdx, SPACE
-    mov rcx, SPACE_LEN
+    mov rcx, 1
     call pos_write
 
     mov rdi, 24
     movzx rsi, byte [menu]
     add rsi, 9
     mov rdx, SPACE
-    mov rcx, SPACE_LEN
+    mov rcx, 1
     call pos_write
 
     mov rdi, 24
     movzx rsi, byte [menu]
     add rsi, 8
     mov rdx, ARROW
-    mov rcx, ARROW_LEN
+    mov rcx, 1
     call pos_write
 
     call read_key
@@ -149,45 +144,18 @@ game_page:
     push rbp
     mov rbp, rsp
     call load_map
+    call draw_map
 
 .play:
-    call clear_page
-
-    mov eax, [y]
-    imul eax, WIDTH
-    add eax, [x]
-
-    mov byte [map + eax], 2
-    push rax
     call draw_map
-    pop rax
-    mov byte [map + eax], 0
-
+    call draw_player
     call read_key
+    call remove_player
+
     mov dl, [input]
-    cmp dl, 0
-    je .up
-    cmp dl, 1
-    je .down
-    cmp dl, 2
-    je .right
-    cmp dl, 3
-    je .left
     cmp dl, 5
     je .exit
-    jmp .play
-
-.up:
-    dec dword [y]
-    jmp .play
-.down:
-    inc dword [y]
-    jmp .play
-.right:
-    inc dword [x]
-    jmp .play
-.left:
-    dec dword [x]
+    call move
     jmp .play
 
 .exit:
@@ -255,6 +223,7 @@ pos_write: ;(x: int, y: int, msg: str, len: int) -> void
 read_key: ;() -> input
     push rbp
     mov rbp, rsp
+
     mov rax, 0
     mov rdi, 0
     mov rsi, key
@@ -317,26 +286,23 @@ draw_map:
     mov rdx, TARGET
     mov rcx, TARGET_LEN
     je .draw
-    cmp byte [rax], 2 ;player
-    mov rdx, PLAYER
-    mov rcx, PLAYER_LEN
-    je .draw
-    cmp byte [rax], 3 ;box
+    cmp byte [rax], 2 ;box
     mov rdx, BOX
     mov rcx, BOX_LEN
+    je .draw
+    cmp byte [rax], 3 ;box + target
+    mov rdx, ACTIVATE_BOX
+    mov rcx, ACTIVATE_BOX_LEN
     je .draw
     cmp byte [rax], 4 ;wall
     mov rdx, WALL
     mov rcx, WALL_LEN
     je .draw
-    cmp byte [rax], 0
-    mov rdx, GROUND
-    mov rcx, GROUND_LEN
-    je .draw
     jmp .skip_draw
 
 .draw:
     call pos_write
+    
 .skip_draw:
     inc r12
     cmp r12, 250
@@ -345,7 +311,113 @@ draw_map:
     leave
     ret
 
-load_map:
+move:
+    push rbp
+    mov rbp, rsp
+
+    mov eax, [y]
+    imul eax, WIDTH
+    add eax, [x]
+
+    mov dl, [input]
+    cmp dl, 0
+    je .up
+    cmp dl, 1
+    je .down
+    cmp dl, 2
+    je .right
+    cmp dl, 3
+    je .left
+    jmp .exit
+
+.up:
+    mov ebx, -WIDTH
+    jmp .check_move
+.down:
+    mov ebx, WIDTH
+    jmp .check_move
+.right:
+    mov ebx, 1
+    jmp .check_move
+.left:
+    mov ebx, -1
+    jmp .check_move
+
+.check_move:
+    movsxd rax, eax
+    movsxd rbx, ebx
+    cmp byte [map + rax + rbx], 4
+    je .exit
+    cmp byte [map + rax + rbx], 1 ;move player
+    jle .move_player
+    cmp byte [map + rax + 2 * rbx], 1 ;move box + player
+    jle .move_box
+    jmp .exit
+
+.move_box:
+    add byte [map + rax + 2 * rbx], 2
+    sub byte [map + rax + rbx], 2
+
+.move_player:
+    mov dl, [input]
+    cmp dl, 0
+    je .up_move
+    cmp dl, 1
+    je .down_move
+    cmp dl, 2
+    je .right_move
+    cmp dl, 3
+    je .left_move
+.up_move:    
+    dec dword [y]
+    jmp .exit
+.down_move:
+    inc dword [y]
+    jmp .exit
+.right_move:
+    inc dword [x]
+    jmp .exit
+.left_move:
+    dec dword [x]
+    jmp .exit
+
+.exit:
+    leave
+    ret
+
+draw_player:
+    push rbp
+    mov rbp, rsp
+
+    mov edi, [x]
+    imul edi, 2
+    mov esi, [y]
+    inc edi
+    inc esi
+    mov rdx, PLAYER
+    mov rcx, PLAYER_LEN
+    call pos_write
+
+    leave
+    ret
+
+remove_player:
+    push rbp
+    mov rbp, rsp
+
+    mov edi, [x]
+    imul edi, 2
+    mov esi, [y]
+    inc edi
+    inc esi
+    mov rdx, ERASER
+    mov rcx, ERASER_LEN
+    call pos_write
+
+    leave
+    ret
+
+load_map: ;() -> x, y, map
     push rbp
     mov rbp, rsp
 
@@ -383,24 +455,6 @@ load_map:
     ret
 
 ;;;;;style;;;;;
-bold_style:
-    push rbp
-    mov rbp, rsp
-    mov rdi, BOLD
-    mov rsi, STYLE_LEN
-    call write
-    leave
-    ret
-
-reset_style:
-    push rbp
-    mov rbp, rsp
-    mov rdi, RESET
-    mov rsi, STYLE_LEN
-    call write
-    leave
-    ret
-
 clear_page:
     push rbp
     mov rbp, rsp
@@ -414,7 +468,7 @@ remove_cursor:
     push rbp
     mov rbp, rsp
     mov rdi, REMOVE_CURSOR
-    lea rsi, [STYLE_LEN + 2]
+    mov rsi, REMOVE_CURSOR_LEN
     call write
     leave
     ret
@@ -423,7 +477,7 @@ total_reset:
     push rbp
     mov rbp, rsp
     mov rdi, TOTAL_RESET
-    lea rsi, [TOTAL_RESET_LEN + 2]
+    mov rsi, TOTAL_RESET_LEN
     call write
     leave
     ret
