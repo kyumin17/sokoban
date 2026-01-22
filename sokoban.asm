@@ -3,9 +3,11 @@ section .data
     BOLD db 27, "[1m"
     RESET db 27, "[0m"
     STYLE_LEN equ $ - RESET
+    REMOVE_CURSOR db 27, "[?25l"
+    CLEAR db 27, "[2J"
 
     ;move
-    MOVE db 0x1B, "["
+    MOVE db 27, "["
     move_row db "00"
     db ";"
     move_col db "00"
@@ -24,11 +26,20 @@ section .data
     SPACE db " ", 0
     SPACE_LEN equ $ - SPACE
 
+    PLAYER db "i", 0
+    PLAYER_LEN equ $ - PLAYER
+
+    ;setting
+    WIDTH equ 50
+    HEIGHT equ 10
+
 section .bss
     menu: resb 1
     key: resb 3
     input: resb 1
     string: resb 2
+    x: resd 1
+    y: resd 1
 
 section .text
     global main
@@ -44,6 +55,7 @@ main:
 start_page:
     push rbp
     mov rbp, rsp
+    call clear_page
     mov byte [menu], 0
 
     call bold_style
@@ -98,6 +110,8 @@ start_page:
 
     call read_key
     mov dl, [input]
+    cmp dl, 4
+    je .select
     mov al, dl
     add al, [menu]
     cmp rax, 1
@@ -105,6 +119,70 @@ start_page:
     mov [menu], dl
     jmp .draw_arrow
 
+.select:
+    cmp byte [menu], 1
+    je .exit
+    call clear_page
+    call game_page
+
+.exit:
+    leave
+    ret
+
+game_page:
+    push rbp
+    mov rbp, rsp
+    mov dword [x], 27
+    mov dword [y], 6
+
+.play:
+    mov edi, [x]
+    mov esi, [y]
+    mov rdx, PLAYER
+    mov rcx, PLAYER_LEN
+    call pos_write
+
+    call read_key
+
+    mov edi, [x]
+    mov esi, [y]
+    mov rdx, SPACE
+    mov rcx, SPACE_LEN
+    call pos_write
+    
+    mov dl, [input]
+    cmp dl, 0
+    je .up
+    cmp dl, 1
+    je .down
+    cmp dl, 2
+    je .right
+    cmp dl, 3
+    je .left
+    jmp .play
+
+.up:
+    cmp dword [y], 1
+    je .play
+    dec dword [y]
+    jmp .play
+.down:
+    cmp dword [y], HEIGHT
+    je .play
+    inc dword [y]
+    jmp .play
+.right:
+    cmp dword [x], WIDTH
+    je .play
+    inc dword [x]
+    jmp .play
+.left:
+    cmp dword [x], 1
+    je .play
+    dec dword [x]
+    jmp .play
+
+.exit:
     leave
     ret
 
@@ -169,8 +247,12 @@ read_key: ;() -> input
     mov rdx, 3
     syscall
 
+    cmp byte [key], 10 ;enter
+    mov byte [input], 4
+    je .exit
+
     mov byte [input], -1
-    cmp byte [key], 0x1B
+    cmp byte [key], 27
     jne .exit
 
     cmp byte [key + 2], "A" ;up
@@ -203,6 +285,15 @@ reset_style:
     push rbp
     mov rbp, rsp
     mov rdi, RESET
+    mov rsi, STYLE_LEN
+    call write
+    leave
+    ret
+
+clear_page:
+    push rbp
+    mov rbp, rsp
+    mov rdi, CLEAR
     mov rsi, STYLE_LEN
     call write
     leave
