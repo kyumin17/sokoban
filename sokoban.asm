@@ -1,53 +1,59 @@
 section .data
-    ;style
-    REMOVE_CURSOR db 27, "[?25l"
-    REMOVE_CURSOR_LEN equ $ - REMOVE_CURSOR
-    TOTAL_RESET db 27, "[H", 27, "[?25h"
-    TOTAL_RESET_LEN equ $ - TOTAL_RESET
-    CLEAR db 27, "[2J", 27, "[3J", 27, "[H"
-    CLEAR_LEN equ $ - CLEAR
-
-    ;move
-    MOVE db 27, "["
-    move_row db "00"
+    ;ansi code
+    ansi_reset_terminal db 27, "[H", 27, "[?25h"
+    ansi_reset_terminal_len equ $ - ansi_reset_terminal
+    ansi_remove_cursor db 27, "[?25l"
+    ansi_remove_cursor_len equ $ - ansi_remove_cursor
+    ansi_clear_terminal db 27, "[2J", 27, "[3J", 27, "[H"
+    ansi_clear_terminal_len equ $ - ansi_clear_terminal
+    ansi_move_cursor db 27, "["
+    move_cursor_row db "00"
     db ";"
-    move_col db "00"
+    move_cursor_col db "00"
     db "H"
-    MOVE_LEN equ $ - MOVE
+    ansi_move_cursor_len equ $ - ansi_move_cursor
 
     ;text
-    TITLE db 27, "[1m", "SOKOBAN", 27, "[0m", 0
-    TITLE_LEN equ $ - TITLE
-    START db "start", 0
-    START_LEN equ $ - START
-    EXIT db "exit", 0
-    EXIT_LEN equ $ - EXIT
-    ARROW db ">", 0
-    SPACE db " ", 0
+    title_msg db 27, "[1m", "SOKOBAN", 27, "[0m"
+    title_msg_len equ $ - title_msg
+    start_msg db "start"
+    start_msg_len equ $ - start_msg
+    exit_msg db "exit"
+    exit_msg_len equ $ - exit_msg
+    arrow db ">"
+    space db " "
 
-    PLAYER db 27, "[38;5;15m", 0xE2, 0x97, 0x8F, 27, "[0m", 0
+    level_msg db "Lv00"
+    level_msg_len equ $ - level_msg
+
+    PLAYER db 27, "[38;5;15;1m", "☀", 27, "[0m"
     PLAYER_LEN equ $ - PLAYER
-    WALL db 27, "[48;5;245m", "  ", 27, "[0m", 0
+    WALL db 27, "[38;5;245m", "▒▒", 27, "[0m"
     WALL_LEN equ $ - WALL
-    BOX db 27, "[38;5;130m", 0xE2, 0x98, 0x92, 27, "[0m", 0
+    BOX db 27, "[38;5;214m", "☒", 27, "[0m"
     BOX_LEN equ $ - BOX
-    ACTIVATE_BOX db 27, "[38;5;11m", 0xE2, 0x98, 0x92, 27, "[0m", 0
+    ACTIVATE_BOX db 27, "[38;5;46m", "☒", 27, "[0m"
     ACTIVATE_BOX_LEN equ $ - ACTIVATE_BOX
-    TARGET db 27, "[38;5;14m", 0xE2, 0x97, 0x86, 27, "[0m", 0
+    TARGET db 27, "[38;5;46m", "◆", 27, "[0m"
     TARGET_LEN equ $ - TARGET
-    ERASER db "  ", 0
+    ERASER db "  "
     ERASER_LEN equ $ - ERASER
 
     ;setting
     WIDTH equ 25
     HEIGHT equ 10
+    FILE_NAME db "map/map.bin"
 
-    ;map
-    FILE_NAME db "map/map.bin", 0
+    ;key
+    UP_KEY equ 0
+    DOWN_KEY equ 1
+    RIGHT_KEY equ 2
+    LEFT_KEY equ 3
+    ENTER_KEY equ 4
+    QUIT_KEY equ 5
 
 section .bss
     map: resb 250
-    menu: resb 1
     key: resb 3
     input: resb 1
     string: resb 2
@@ -57,115 +63,100 @@ section .bss
 section .text
     global main
 
-main:
+;;;;;macro;;;;;
+%macro BEGIN_FN 0
     push rbp
     mov rbp, rsp
+%endmacro
+
+%macro CALL_FN 1-5
+    %if %0 > 4
+    mov rcx, %5
+    %endif
+    %if %0 > 3
+    mov rdx, %4
+    %endif
+    %if %0 > 2
+    mov rsi, %3
+    %endif
+    %if %0 > 1
+    mov rdi, %2
+    %endif
+    call %1
+%endmacro
+
+main:
+    BEGIN_FN
+    CALL_FN write, ansi_remove_cursor, ansi_remove_cursor_len
     call start_page
+    CALL_FN write, ansi_clear_terminal, ansi_clear_terminal_len
+    CALL_FN write, ansi_reset_terminal, ansi_reset_terminal_len
     leave
     ret
 
 ;;;;;page;;;;;
 start_page:
-    push rbp
-    mov rbp, rsp
-    call remove_cursor
-    call clear_page
-    mov byte [menu], 0
-    
-    mov rdi, 24
-    mov rsi, 4
-    mov rdx, TITLE
-    mov rcx, TITLE_LEN
-    call pos_write
-
-    mov rdi, 26
-    mov rsi, 8
-    mov rdx, START
-    mov rcx, START_LEN
-    call pos_write
-
-    mov rdi, 26
-    mov rsi, 9
-    mov rdx, EXIT
-    mov rcx, EXIT_LEN
-    call pos_write
-
-    mov rdi, 1
-    mov rsi, 12
-    mov rdx, SPACE
-    mov rcx, 1
-    call pos_write
-
-.draw_arrow:
-    mov rdi, 24
-    movzx rsi, byte [menu]
-    add rsi, 7
-    mov rdx, SPACE
-    mov rcx, 1
-    call pos_write
-
-    mov rdi, 24
-    movzx rsi, byte [menu]
-    add rsi, 9
-    mov rdx, SPACE
-    mov rcx, 1
-    call pos_write
-
-    mov rdi, 24
-    movzx rsi, byte [menu]
-    add rsi, 8
-    mov rdx, ARROW
-    mov rcx, 1
-    call pos_write
-
-    call read_key
+    BEGIN_FN
+    CALL_FN write, ansi_clear_terminal, ansi_clear_terminal_len
+    CALL_FN write_xy, 24, 4, title_msg, title_msg_len
+    CALL_FN write_xy, 26, 8, start_msg, start_msg_len
+    CALL_FN write_xy, 26, 9, exit_msg, exit_msg_len
+    mov rax, 8
+.draw_select:
+    CALL_FN write_xy, 24, rax, arrow, 1
+    push rax
+    call get_key
+    pop rax
+    CALL_FN write_xy, 24, 8, space, 1
+    CALL_FN write_xy, 24, 9, space, 1
     mov dl, [input]
-    cmp dl, 4
-    je .select
-    mov al, dl
-    add al, [menu]
-    cmp rax, 1
-    jne .draw_arrow
-    mov [menu], dl
-    jmp .draw_arrow
-
-.select:
-    cmp byte [menu], 1
+    cmp dl, QUIT_KEY
     je .exit
-    call clear_page
-    call game_page
-
+    cmp dl, ENTER_KEY
+    je .select_menu
+    cmp dl, UP_KEY
+    jne .skip_up
+    mov rax, 8
+.skip_up:
+    cmp dl, DOWN_KEY
+    jne .draw_select
+    mov rax, 9
+    jmp .draw_select
+.select_menu:
+    cmp rax, 9
+    je .exit
+    call menu_page
 .exit:
-    call total_reset
     leave
     ret
 
-game_page:
-    push rbp
-    mov rbp, rsp
-    call load_map
-    call draw_map
+menu_page:
+    BEGIN_FN
+    call game_page
+    leave
+    ret
 
+game_page: ;(lv: int) -> void
+    BEGIN_FN
+    CALL_FN write, ansi_clear_terminal, ansi_clear_terminal_len
+    call load_map
 .play:
     call draw_map
     call draw_player
-    call read_key
+    call get_key
     call remove_player
-
     mov dl, [input]
     cmp dl, 5
     je .exit
     call move
     jmp .play
-
 .exit:
     leave
     ret
 
 ;;;;;control;;;;;
 write: ;(msg: str, len: int) -> void
-    push rbp
-    mov rbp, rsp
+    BEGIN_FN
     mov rdx, rsi
     mov rsi, rdi
     mov rdi, 1
@@ -173,108 +164,80 @@ write: ;(msg: str, len: int) -> void
     syscall
     leave
     ret
-    
-int_to_str: ;(x: int) -> string
-    push rbp
-    mov rbp, rsp
+
+int_to_str: ;(x: int, buf) -> buf
+    BEGIN_FN
     xor rdx, rdx
     mov rax, rdi
     mov rcx, 10
     div rcx
     add rax, "0"
     add rdx, "0"
-    mov byte [string], al
-    mov byte [string + 1], dl
+    mov byte [rsi], al
+    mov byte [rsi + 1], dl
     leave
     ret
 
-pos_write: ;(x: int, y: int, msg: str, len: int) -> void
-    push rbp
-    mov rbp, rsp
+write_xy: ;(x: int, y: int, msg: str, len: int) -> void
+    BEGIN_FN
     push r12
-    push r13
-    push r14
+    push rdx
+    push rcx
     mov r12, rsi
-    mov r13, rdx
-    mov r14, rcx
-
-    ;move position
-    call int_to_str
-    mov ax, [string]
-    mov [move_col], ax
-    mov rdi, r12
-    call int_to_str
-    mov ax, [string]
-    mov [move_row], ax
-    mov rdi, MOVE
-    mov rsi, MOVE_LEN
-    call write
-
-    ;print
-    mov rdi, r13
-    mov rsi, r14
-    call write
+    CALL_FN int_to_str, rdi, move_cursor_col
+    CALL_FN int_to_str, r12, move_cursor_row
+    CALL_FN write, ansi_move_cursor, ansi_move_cursor_len
+    pop rcx
+    pop rdx
     pop r12
-    pop r13
-    pop r14
+    CALL_FN write, rdx, rcx
     leave
     ret
 
-read_key: ;() -> input
-    push rbp
-    mov rbp, rsp
-
+get_key: ;() -> input
+    BEGIN_FN
     mov rax, 0
     mov rdi, 0
     mov rsi, key
     mov rdx, 3
     syscall
-
-    cmp byte [key], 10 ;enter
-    mov byte [input], 4
+    cmp byte [key], 10
+    mov byte [input], ENTER_KEY
     je .exit
-
-    cmp byte [key], "q" ;q
-    mov byte [input], 5
+    cmp byte [key], "q"
+    mov byte [input], QUIT_KEY
     je .exit
-
     mov byte [input], -1
     cmp byte [key], 27
     jne .exit
-
-    cmp byte [key + 2], "A" ;up
-    mov byte [input], 0
+    cmp byte [key + 2], "A"
+    mov byte [input], UP_KEY
     je .exit
-    cmp byte [key + 2], "B" ;down
-    mov byte [input], 1
+    cmp byte [key + 2], "B"
+    mov byte [input], DOWN_KEY
     je .exit
-    cmp byte [key + 2], "C" ;right
-    mov byte [input], 2
+    cmp byte [key + 2], "C"
+    mov byte [input], RIGHT_KEY
     je .exit
-    cmp byte [key + 2], "D" ;left
-    mov byte [input], 3
-
+    cmp byte [key + 2], "D"
+    mov byte [input], LEFT_KEY
 .exit:
     leave
     ret
 
 ;;;;;util;;;;;
 draw_map:
-    push rbp
-    mov rbp, rsp
+    BEGIN_FN
     push r12
     mov r12, 0
 
 .loop:
     lea rax, [map + r12]
-
     push rax
-
     xor rdx, rdx
     mov rax, r12
     mov rbx, WIDTH
     div rbx
-
     mov rdi, rdx ;x
     imul rdi, 2
     mov rsi, rax ;y
@@ -299,10 +262,8 @@ draw_map:
     mov rcx, WALL_LEN
     je .draw
     jmp .skip_draw
-
 .draw:
-    call pos_write
-    
+    call write_xy
 .skip_draw:
     inc r12
     cmp r12, 250
@@ -312,13 +273,10 @@ draw_map:
     ret
 
 move:
-    push rbp
-    mov rbp, rsp
-
+    BEGIN_FN
     mov eax, [y]
     imul eax, WIDTH
     add eax, [x]
-
     mov dl, [input]
     cmp dl, 0
     je .up
@@ -329,7 +287,6 @@ move:
     cmp dl, 3
     je .left
     jmp .exit
-
 .up:
     mov ebx, -WIDTH
     jmp .check_move
@@ -342,7 +299,6 @@ move:
 .left:
     mov ebx, -1
     jmp .check_move
-
 .check_move:
     movsxd rax, eax
     movsxd rbx, ebx
@@ -353,11 +309,9 @@ move:
     cmp byte [map + rax + 2 * rbx], 1 ;move box + player
     jle .move_box
     jmp .exit
-
 .move_box:
     add byte [map + rax + 2 * rbx], 2
     sub byte [map + rax + rbx], 2
-
 .move_player:
     mov dl, [input]
     cmp dl, 0
@@ -380,15 +334,12 @@ move:
 .left_move:
     dec dword [x]
     jmp .exit
-
 .exit:
     leave
     ret
 
 draw_player:
-    push rbp
-    mov rbp, rsp
-
+    BEGIN_FN
     mov edi, [x]
     imul edi, 2
     mov esi, [y]
@@ -396,15 +347,12 @@ draw_player:
     inc esi
     mov rdx, PLAYER
     mov rcx, PLAYER_LEN
-    call pos_write
-
+    call write_xy
     leave
     ret
 
 remove_player:
-    push rbp
-    mov rbp, rsp
-
+    BEGIN_FN
     mov edi, [x]
     imul edi, 2
     mov esi, [y]
@@ -412,14 +360,12 @@ remove_player:
     inc esi
     mov rdx, ERASER
     mov rcx, ERASER_LEN
-    call pos_write
-
+    call write_xy
     leave
     ret
 
 load_map: ;() -> x, y, map
-    push rbp
-    mov rbp, rsp
+    BEGIN_FN
 
     mov rax, 2
     mov rdi, FILE_NAME
@@ -451,33 +397,5 @@ load_map: ;() -> x, y, map
     mov rdi, rbx
     syscall
 
-    leave
-    ret
-
-;;;;;style;;;;;
-clear_page:
-    push rbp
-    mov rbp, rsp
-    mov rdi, CLEAR
-    mov rsi, CLEAR_LEN
-    call write
-    leave
-    ret
-
-remove_cursor:
-    push rbp
-    mov rbp, rsp
-    mov rdi, REMOVE_CURSOR
-    mov rsi, REMOVE_CURSOR_LEN
-    call write
-    leave
-    ret
-
-total_reset:
-    push rbp
-    mov rbp, rsp
-    mov rdi, TOTAL_RESET
-    mov rsi, TOTAL_RESET_LEN
-    call write
     leave
     ret

@@ -1,1 +1,3 @@
 # sokoban
+### run
+```make play```

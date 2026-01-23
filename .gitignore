@@ -1,3 +1,4 @@
 sokoban
 *.o
+*.txt
 generator.py
