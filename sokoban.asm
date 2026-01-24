@@ -4,7 +4,7 @@ section .data
     ansi_reset_terminal_len equ $ - ansi_reset_terminal
     ansi_remove_cursor db 27, "[?25l"
     ansi_remove_cursor_len equ $ - ansi_remove_cursor
-    ansi_clear_terminal db 27, "[2J", 27, "[3J", 27, "[H"
+    ansi_clear_terminal db 27, "[0m", 27, "[2J", 27, "[3J", 27, "[H"
     ansi_clear_terminal_len equ $ - ansi_clear_terminal
     ansi_move_cursor db 27, "["
     move_cursor_row db "00"
@@ -12,6 +12,12 @@ section .data
     move_cursor_col db "00"
     db "H"
     ansi_move_cursor_len equ $ - ansi_move_cursor
+    ansi_clear_terminal_blue db 27, "[48;5;33m", 27, "[2J", 27, "[3J", 27, "[H"
+    ansi_clear_terminal_blue_len equ $ - ansi_clear_terminal_blue
+    ansi_style_bold db 27, "[1m"
+    ansi_style_bold_len equ $ - ansi_style_bold
+    ansi_style_bold_remove db 27, "[22m"
+    ansi_style_bold_remove_len equ $ - ansi_style_bold_remove
 
     ;text
     title_msg db 27, "[1m", "SOKOBAN", 27, "[0m"
@@ -21,28 +27,30 @@ section .data
     exit_msg db "exit"
     exit_msg_len equ $ - exit_msg
     arrow db ">"
-    space db " "
+    space db "    "
 
-    level_msg db "Lv00"
+    select_left_msg db " ["
+    select_right_msg db "] "
+
+    level_msg db "Lv"
+    level_str db "00"
     level_msg_len equ $ - level_msg
 
-    PLAYER db 27, "[38;5;15;1m", "☀", 27, "[0m"
-    PLAYER_LEN equ $ - PLAYER
-    WALL db 27, "[38;5;245m", "▒▒", 27, "[0m"
-    WALL_LEN equ $ - WALL
-    BOX db 27, "[38;5;214m", "☒", 27, "[0m"
-    BOX_LEN equ $ - BOX
-    ACTIVATE_BOX db 27, "[38;5;46m", "☒", 27, "[0m"
-    ACTIVATE_BOX_LEN equ $ - ACTIVATE_BOX
-    TARGET db 27, "[38;5;46m", "◆", 27, "[0m"
-    TARGET_LEN equ $ - TARGET
-    ERASER db "  "
-    ERASER_LEN equ $ - ERASER
+    player_shape db 27, "[38;5;15m", "@ "
+    player_shape_len equ $ - player_shape
+    wall_shape db 27, "[48;5;88;38;5;33m", "┤├", 27, "[48;5;33m"
+    wall_shape_len equ $ - wall_shape
+    box_shape db 27, "[38;5;15m", "☒ "
+    box_shape_len equ $ - box_shape
+    activate_box_shape db 27, "[38;5;15m", "☒ "
+    activate_box_shape_len equ $ - activate_box_shape
+    target_shape db 27, "[38;5;15m", "◇ "
+    target_shape_len equ $ - target_shape
 
     ;setting
     WIDTH equ 25
     HEIGHT equ 10
-    FILE_NAME db "map/map.bin"
+    FILE_NAME db "data/lv00.bin"
 
     ;key
     UP_KEY equ 0
@@ -56,12 +64,12 @@ section .bss
     map: resb 250
     key: resb 3
     input: resb 1
-    string: resb 2
     x: resd 1
     y: resd 1
+    level: resb 1
 
 section .text
-    global main
+    global _start
 
 ;;;;;macro;;;;;
 %macro BEGIN_FN 0
@@ -85,14 +93,15 @@ section .text
     call %1
 %endmacro
 
-main:
+_start:
     BEGIN_FN
     CALL_FN write, ansi_remove_cursor, ansi_remove_cursor_len
     call start_page
     CALL_FN write, ansi_clear_terminal, ansi_clear_terminal_len
     CALL_FN write, ansi_reset_terminal, ansi_reset_terminal_len
-    leave
-    ret
+    mov rax, 60
+    xor rdi, rdi
+    syscall
 
 ;;;;;page;;;;;
 start_page:
@@ -101,12 +110,11 @@ start_page:
     CALL_FN write_xy, 24, 4, title_msg, title_msg_len
     CALL_FN write_xy, 26, 8, start_msg, start_msg_len
     CALL_FN write_xy, 26, 9, exit_msg, exit_msg_len
-    mov rax, 8
+    push r12
+    mov r12, 8
 .draw_select:
-    CALL_FN write_xy, 24, rax, arrow, 1
-    push rax
+    CALL_FN write_xy, 24, r12, arrow, 1
     call get_key
-    pop rax
     CALL_FN write_xy, 24, 8, space, 1
     CALL_FN write_xy, 24, 9, space, 1
     mov dl, [input]
@@ -116,14 +124,15 @@ start_page:
     je .select_menu
     cmp dl, UP_KEY
     jne .skip_up
-    mov rax, 8
+    mov r12, 8
 .skip_up:
     cmp dl, DOWN_KEY
     jne .draw_select
-    mov rax, 9
+    mov r12, 9
     jmp .draw_select
 .select_menu:
-    cmp rax, 9
+    cmp r12, 9
+    pop r12
     je .exit
     call menu_page
 .exit:
@@ -131,15 +140,70 @@ start_page:
     ret
 
 menu_page:
+    mov byte [level], 1
     BEGIN_FN
+    CALL_FN write, ansi_clear_terminal, ansi_clear_terminal_len
+    CALL_FN write_xy, 24, 2, title_msg, title_msg_len
+    CALL_FN write_xy, 9, 4, space, 0
+    push r12
+    mov r12, 1
+.draw_lv:
+    CALL_FN int_to_str, r12, level_str
+    CALL_FN write, level_msg, level_msg_len
+    CALL_FN write, space, 4
+.draw_end:
+    inc r12
+    cmp r12, 6
+    jne .skip_down_1
+    CALL_FN write_xy, 9, 6, space, 0
+.skip_down_1:
+    cmp r12, 11
+    jne .skip_down_2
+    CALL_FN write_xy, 9, 8, space, 0
+.skip_down_2:
+    cmp r12, 15
+    jle .draw_lv
+.draw_select:
+    mov r12, [level]
+    call get_key
+    mov dl, [input]
+    cmp dl, QUIT_KEY
+    je .exit
+    cmp dl, ENTER_KEY
+    je .play
+    cmp dl, UP_KEY
+    je .up
+.up:
+    cmp r12, 5
+    jle .draw_select
+    sub r12, 5
+.down:
+    cmp r12, 10
+    jg .draw_select
+    add r12, 5
+.left:
+    cmp r12, 1
+    je .draw_select
+    sub r12, 1
+.right:
+    cmp r12, 15
+    je .draw_select
+    add r12, 1
+.play:
+    pop r12
     call game_page
+.exit:
     leave
     ret
 
 game_page: ;(lv: int) -> void
     BEGIN_FN
-    CALL_FN write, ansi_clear_terminal, ansi_clear_terminal_len
+    CALL_FN write, ansi_clear_terminal_blue, ansi_clear_terminal_blue_len
     call load_map
+    CALL_FN int_to_str, [level], level_str
+    CALL_FN write, ansi_style_bold, ansi_style_bold_len
+    CALL_FN write_xy, 4, 2, level_msg, level_msg_len
+    CALL_FN write, ansi_style_bold_remove, ansi_style_bold_remove_len
 .play:
     call draw_map
     call draw_player
@@ -226,6 +290,14 @@ get_key: ;() -> input
     ret
 
 ;;;;;util;;;;;
+get_terminal_pos: ;(x: int, y: int) -> x, y
+    BEGIN_FN
+    imul edi, 2
+    add edi, 4
+    add esi, 4
+    leave
+    ret
+
 draw_map:
     BEGIN_FN
     push r12
@@ -238,28 +310,24 @@ draw_map:
     mov rax, r12
     mov rbx, WIDTH
     div rbx
-    mov rdi, rdx ;x
-    imul rdi, 2
-    mov rsi, rax ;y
-    inc rdi
-    inc rsi
+    CALL_FN get_terminal_pos, rdx, rax
 
     pop rax
     cmp byte [rax], 1 ;target
-    mov rdx, TARGET
-    mov rcx, TARGET_LEN
+    mov rdx, target_shape
+    mov rcx, target_shape_len
     je .draw
     cmp byte [rax], 2 ;box
-    mov rdx, BOX
-    mov rcx, BOX_LEN
+    mov rdx, box_shape
+    mov rcx, box_shape_len
     je .draw
     cmp byte [rax], 3 ;box + target
-    mov rdx, ACTIVATE_BOX
-    mov rcx, ACTIVATE_BOX_LEN
+    mov rdx, activate_box_shape
+    mov rcx, activate_box_shape_len
     je .draw
     cmp byte [rax], 4 ;wall
-    mov rdx, WALL
-    mov rcx, WALL_LEN
+    mov rdx, wall_shape
+    mov rcx, wall_shape_len
     je .draw
     jmp .skip_draw
 .draw:
@@ -340,32 +408,28 @@ move:
 
 draw_player:
     BEGIN_FN
-    mov edi, [x]
-    imul edi, 2
-    mov esi, [y]
-    inc edi
-    inc esi
-    mov rdx, PLAYER
-    mov rcx, PLAYER_LEN
+    CALL_FN get_terminal_pos, [x], [y]
+    mov rdx, player_shape
+    mov rcx, player_shape_len
     call write_xy
     leave
     ret
 
 remove_player:
     BEGIN_FN
-    mov edi, [x]
-    imul edi, 2
-    mov esi, [y]
-    inc edi
-    inc esi
-    mov rdx, ERASER
-    mov rcx, ERASER_LEN
+    CALL_FN get_terminal_pos, [x], [y]
+    mov rdx, space
+    mov rcx, 2
     call write_xy
     leave
     ret
 
 load_map: ;() -> x, y, map
     BEGIN_FN
+
+    mov rax, FILE_NAME
+    add rax, 7
+    CALL_FN int_to_str, [level], rax
 
     mov rax, 2
     mov rdi, FILE_NAME

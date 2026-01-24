@@ -1,8 +1,8 @@
 sokoban: sokoban.o
-	gcc -no-pie -Wl,-z,noexecstack -o sokoban sokoban.o
+	ld -s -o sokoban sokoban.o
 
 sokoban.o: sokoban.asm
-	nasm -f elf64 -o sokoban.o sokoban.asm
+	nasm -f elf64 sokoban.asm
 
 .PHONY: play
 play: sokoban
