@@ -1,4 +1,4 @@
 sokoban
-*.o
+*.com
 *.txt
-generator.py
+generator
