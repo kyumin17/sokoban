@@ -5,18 +5,15 @@ section .data
     title_str db "SOKOBAN"
     start_str db "START"
     exit_str db "EXIT"
+    complete_str db "COMPLETE"
     
     map_file_path db "map/"
     level_str db "lv"
     level_num_str db "00"
     db ".bin", 0
-
     level_file_path db "data/level.bin", 0
-    player_file_path db "data/player.bin", 0
-    grass_file_path db "data/grass.bin", 0
-    wall_file_path db "data/wall.bin", 0
-    box_file_path db "data/box.bin", 0
-    target_file_path db "data/target.bin", 0
+    img_file_path db "data/image.bin", 0
+    title_file_path db "data/title.bin", 0
 
     width equ 320
     height equ 200
@@ -30,24 +27,29 @@ section .data
 
     target equ 1
     box equ 2
-    wall equ 3
+    target_box equ 3
+    wall equ 4
 
 section .bss
     fp: resw 1
     number: resw 1
     buffer: resb 256
+    buffer2: resb 256
     clear_level: resw 1
     level: resw 1
-    map: resb 200
-    player_shape: resb 68
-    grass_shape: resb 68
-    wall_shape: resb 68
-    box_shape: resb 68
-    target_shape: resb 68
+
+    player_img: resb 68
+    target_img: resb 68
+    box_img: resb 68
+    wall_img: resb 68
+    ground_img: resb 68
+
     map_width: resb 1
     map_height: resb 1
     player_x: resb 1
     player_y: resb 1
+    map: resb 200
+    box_number: resb 1
 
 section .text
 ;;;;;;;;;;define;;;;;;;;;;
@@ -55,6 +57,7 @@ section .text
 %define arg2 [bp+6]
 %define arg3 [bp+8]
 %define arg4 [bp+10]
+%define arg5 [bp+12]
 
 ;;;;;;;;;;macro;;;;;;;;;;
 %macro BEGIN 0
@@ -69,7 +72,10 @@ section .text
     mov ax, %2
     int %1
 %endmacro
-%macro CALL_FN 1-5
+%macro CALL_FN 1-6
+    %if %0 > 5
+    push %6
+    %endif
     %if %0 > 4
     push %5
     %endif
@@ -127,11 +133,8 @@ start:
     CALL_SYS 10h, 13h
     MOV_VAL es, 0A000h
     LOAD_FILE level_file_path, clear_level, 1
-    LOAD_FILE player_file_path, player_shape, 68
-    LOAD_FILE grass_file_path, grass_shape, 68
-    LOAD_FILE wall_file_path, wall_shape, 68
-    LOAD_FILE box_file_path, box_shape, 68
-    LOAD_FILE target_file_path, target_shape, 68
+    LOAD_FILE img_file_path, player_img, 68*4
+    mov byte [ground_img], 25
     call start_page
     CALL_SYS 10h, 3h
     CALL_SYS 21h, 4C00h
@@ -139,27 +142,30 @@ start:
 ;;;;;;;;;;page;;;;;;;;;;
 start_page:
     BEGIN
-    CALL_FN draw_string, 16, 6, title_str, 7
-    CALL_FN draw_string, 17, 15, start_str, 5
-    CALL_FN draw_string, 17, 17, exit_str, 4
-    mov bx, 15
+    call draw_start_background
+    CALL_FN draw_string, 16, 6, title_str, 7, 0
+    CALL_FN draw_string, 17, 13, start_str, 5, 0
+    CALL_FN draw_string, 17, 15, exit_str, 4, 0
+    mov bx, 13
 .get_key:
     push bx
-    mov cx, 32
+    mov cx, 28
     sub cx, bx
-    CALL_FN draw_letter, 15, bx, '>'
-    CALL_FN draw_letter, 15, cx, ' '
+    push cx
+    CALL_FN draw_letter, 15, bx, '>', 0
+    pop cx
+    CALL_FN draw_letter, 15, cx, 219, 43
     CALL_SYS 16h, 0h
     pop bx
     CJE al, enter_key, .select_menu
     CJNE ah, up_key, .check_down
-    mov bl, 15
+    mov bl, 13
 .check_down:
     CJNE ah, down_key, .get_key
-    mov bl, 17
+    mov bl, 15
     jmp .get_key
 .select_menu:
-    CJE bl, 17, .exit
+    CJE bl, 15, .exit
     call clear_screen
     call menu_page
 .exit:
@@ -167,7 +173,7 @@ start_page:
 
 menu_page:
     BEGIN
-    CALL_FN draw_string, 16, 2, title_str, 7
+    CALL_FN draw_string, 16, 2, title_str, 7, 15
     CALL_SYS 16h, 0h
     MOV_VAL [level], [clear_level]
     call clear_screen
@@ -179,26 +185,31 @@ game_page:
     CALL_FN int_to_str, word [level], level_num_str
     call load_map
     call draw_map
-    CALL_FN draw_string, 1, 1, level_str, 4
-.get_input:
+    CALL_FN draw_string, 1, 1, level_str, 4, 15
+.update:
     movzx bx, byte [player_x]
-    inc bx
-    shl bx, 4
     movzx dx, byte [player_y]
-    shl dx, 4
-    add dx, 24
     PUSH_REG bx, dx
-    CALL_FN draw_shape, bx, dx, player_shape
+    CALL_FN draw_map_shape, bx, dx, player_img
+    CJE byte [box_number], 0, .complete
     CALL_SYS 16h, 0h
     CJE al, enter_key, .exit
     POP_REG bx, dx
     call play_turn
-    jmp .get_input
+    jmp .update
+.complete:
+    call complete_page
 .exit:
     END 0
 
+complete_page:
+    BEGIN
+    CALL_FN draw_string, 16, 10, complete_str, 8
+    CALL_SYS 16h, 0h
+    END 0
+
 ;;;;;;;;;;util;;;;;;;;;;
-draw_shape: ;(x: int, y: int, buf)
+draw_shape: ;(x, y, buf)
     BEGIN
     mov bx, arg3
     mov cx, 2
@@ -210,6 +221,8 @@ draw_shape: ;(x: int, y: int, buf)
     mov di, arg2
     imul di, width
     add di, arg1
+    shl di, 4
+    add di, width*8
     xor dl, dl
 .outer_loop:
     mov cx, cell_size/4
@@ -241,39 +254,128 @@ draw_shape: ;(x: int, y: int, buf)
     CJNE dl, cell_size, .outer_loop
     END 6
 
-draw_string: ;(x: int, y: int, msg: str, len: int)
+draw_map_shape: ;(x, y, buf)
     BEGIN
-    mov ah, 2h
-    mov bh, 0
-    mov dh, arg2
-    mov dl, arg1
-    int 10h
+    mov ax, 20
+    sub ax, [map_width]
+    shr ax, 1
+    add ax, arg1
+    mov bx, 13
+    sub bx, [map_height]
+    shr bx, 1
+    add bx, arg2
+    inc bx
+    CALL_FN draw_shape, ax, bx, word arg3
+    END 6
+
+draw_string: ;(x, y, msg, len, color)
+    BEGIN
+    xor si, si
+    mov dx, arg1
     mov cx, arg4
-    mov si, arg3
-    cld
 .loop:
-    lodsb
-    mov ah, 0Eh
-    mov bl, 15
-    int 10h
+    mov bx, arg3
+    add bx, si
+    movzx ax, byte [bx]
+    PUSH_REG si, cx, dx
+    CALL_FN draw_letter, dx, word arg2, ax, word arg5
+    POP_REG si, cx, dx
+    inc dx
+    inc si
     loop .loop
     END 8
 
-draw_letter: ;(x: int, y: int, c: char)
+draw_letter: ;(x, y, char, color)
     BEGIN
-    mov ah, 2h
-    mov bh, 0
-    mov dh, arg2
-    mov dl, arg1
+    mov si, arg3
+    shl si, 3
+    push ds
+    PUSH_REG es, bp
+    mov ax, 1130h
+    mov bh, 3h
     int 10h
-    mov al, arg3
-    mov ah, 0Eh
-    mov bl, 15
-    int 10h
-    END 6
+    MOV_VAL ds, es
+    add si, bp
+    POP_REG es, bp
+    mov di, arg2
+    imul di, width
+    add di, arg1
+    shl di, 3
+    mov cx, 8
+.outer_loop:
+    mov al, [ds:si]
+    mov bx, 0
+.inner_loop:
+    mov ah, al
+    and ah, 128
+    CJE ah, 0, .skip_draw
+    push ax
+    mov al, byte arg4
+    mov [es:di], al
+    pop ax
+.skip_draw:
+    shl al, 1
+    inc bx
+    inc di
+    CJNE bx, 8, .inner_loop
+    add di, width-8
+    inc si
+    loop .outer_loop
+    pop ds
+    END 8
+
+draw_start_background:
+    BEGIN
+    mov ax, 0A000h
+    mov es, ax
+    xor di, di
+    mov cx, width*height/2
+    sub cx, width*24
+    mov al, 43
+    mov ah, al
+    rep stosw
+    mov cx, width/2
+    mov al, 0
+    mov ah, al
+    rep stosw
+    mov cx, 47*width/2
+    mov al, 25
+    mov ah, al
+    rep stosw
+    CALL_FN open_file, title_file_path
+    mov [number], word 0
+    xor di, di
+    mov dx, player_img
+.outer_loop:
+    push dx
+    CALL_FN read_file, number, 1
+    CALL_FN read_file, buffer2, word [number]
+    pop dx
+    movzx cx, byte [number]
+    xor si, si
+.inner_loop:
+    movzx ax, byte [buffer2+si]
+    mov bl, 20
+    div bl
+    movzx bx, al
+    push dx
+    mov dl, ah
+    movzx ax, dl
+    pop dx
+    PUSH_REG cx, si, dx, di
+    CALL_FN draw_shape, ax, bx, dx
+    POP_REG cx, si, dx, di
+    inc si
+    loop .inner_loop
+    mov dx, box_img
+    inc di
+    CJE di, 1, .outer_loop
+    call close_file
+    END 0
 
 load_map:
     BEGIN
+    mov byte [box_number], 0
     mov word [number], 0
     CALL_FN open_file, map_file_path
     CALL_FN read_file, map_width, 4
@@ -293,7 +395,15 @@ load_map:
 .inner_loop:
     mov ah, al
     and ah, 3
+    CJNE ah, 3, .skip_wall
+    mov [map+bx], byte 4
+    jmp .skip_all
+.skip_wall:
+    CJNE ah, 2, .skip_box
+    inc byte [box_number]
+.skip_box:
     mov [map+bx], ah
+.skip_all:
     shr al, 2
     inc bx
     inc dx
@@ -306,98 +416,86 @@ load_map:
 draw_map:
     BEGIN
     ;background
-    mov cx, width*4
+    mov cx, width*height/2
     xor di, di
-.draw_top:
-    mov al, 2
-    mov ah, 2
+.draw_background:
+    mov al, 25
+    mov ah, 25
     mov [es:di], ax
     add di, 2
-    loop .draw_top
-    mov bx, 0
-.outer_loop_bg:
-    mov cx, 20
-.inner_loop_bg:
-    PUSH_REG bx, cx
-    mov dx, bx
-    shl dx, 4
-    add dx, 8
-    mov ax, cx
-    shl ax, 4
-    CALL_FN draw_shape, ax, dx, grass_shape
-    POP_REG bx, cx
-    loop .inner_loop_bg
-    inc bx
-    CJNE bx, 12, .outer_loop_bg
-    ;objects
+    loop .draw_background
+    ;object
     movzx cx, byte [map_width]
     movzx ax, byte [map_height]
     imul cx, ax
-    mov ax, cell_size
-    mov bx, 24
+    xor ax, ax
+    xor bx, bx
     xor si, si
 .loop_obj:
-    movzx dx, byte [map_width]
-    inc dx
-    shl dx, 4
-    CJNE ax, dx, .draw
-    mov ax, cell_size
-    add bx, cell_size
+    CJNE al, byte [map_width], .draw
+    xor ax, ax
+    inc bx
 .draw:
     PUSH_REG ax, bx, cx, dx
     push si
     mov cl, byte [map+si]
     CJNE cl, target, .box
-    mov dx, target_shape
+    mov dx, target_img
     jmp .skip_all
 .box:
     CJNE cl, box, .wall
-    mov dx, box_shape
+    mov dx, box_img
     jmp .skip_all
 .wall:
     CJNE cl, wall, .skip_draw
-    mov dx, wall_shape
+    mov dx, wall_img
     jmp .skip_all
 .skip_all:
-    CALL_FN draw_shape, ax, bx, dx
+    CALL_FN draw_map_shape, ax, bx, dx
 .skip_draw:
     pop si
     POP_REG ax, bx, cx, dx
-    add ax, cell_size
+    inc ax
     inc si
     loop .loop_obj
     END 0
 
-draw_map_cell: ;(idx: int)
+draw_map_cell: ;(idx)
     BEGIN
     mov ax, arg1
     mov cl, byte [map_width]
     div cl
     movzx cx, al
     movzx ax, ah
-    inc ax
-    shl ax, 4
-    shl cx, 4
-    add cx, 24
     PUSH_REG ax, cx
-    CALL_FN draw_shape, ax, cx, grass_shape
+    CALL_FN draw_map_shape, ax, cx, ground_img
     POP_REG ax, cx
     mov bx, map
     add bx, arg1
     movzx bx, byte [bx]
     CJNE bx, target, .box
-    mov dx, target_shape
+    mov dx, target_img
     jmp .draw
 .box:
-    CJNE bx, box, .wall
-    mov dx, box_shape
+    CJNE bx, box, .target_box
+    mov [box_img+1], byte 6
+    mov [box_img+2], byte 114
+    mov [box_img+3], byte 186
+    mov dx, box_img
+    jmp .draw
+.target_box:
+    CJNE bx, target_box, .wall
+    mov [box_img+1], byte 42
+    mov [box_img+2], byte 6
+    mov [box_img+3], byte 114
+    mov dx, box_img
     jmp .draw
 .wall:
     CJNE bx, wall, .exit
-    mov dx, wall_shape
+    mov dx, wall_img
     jmp .draw
 .draw:
-    CALL_FN draw_shape, ax, cx, dx
+    CALL_FN draw_map_shape, ax, cx, dx
 .exit:
     END 2
 
@@ -435,6 +533,12 @@ play_turn:
     jle .move_box
     jmp .exit
 .move_box:
+    CJNE byte [map+bx+di], 1, .inc_box_num
+    dec byte [box_number]
+.inc_box_num:
+    CJNE byte [map+bx+si], 3, .update_box
+    inc byte [box_number]
+.update_box:
     add byte [map+bx+di], box
     sub byte [map+bx+si], box
     mov dx, bx
@@ -469,7 +573,7 @@ play_turn:
 .exit:
     END 0
 
-int_to_str: ;(x: int, buf)
+int_to_str: ;(x, buf)
     BEGIN
     mov ax, arg1
     mov bl, 10
@@ -492,7 +596,7 @@ clear_screen:
     rep stosw
     END 0
 
-open_file: ;(file_name: str) -> fp
+open_file: ;(file_name) -> fp
     BEGIN
     mov ah, 3Dh
     mov al, 0
@@ -501,7 +605,7 @@ open_file: ;(file_name: str) -> fp
     mov [fp], ax
     END 2
 
-read_file: ;(buf, size: int)
+read_file: ;(buf, size)
     BEGIN
     mov ah, 3Fh
     mov bx, [fp]
