@@ -17,7 +17,6 @@ section .data
 
     width equ 320
     height equ 200
-    cell_size equ 16
 
     enter_key equ 0Dh
     up_key equ 48h
@@ -35,14 +34,18 @@ section .bss
     number: resw 1
     buffer: resb 256
     buffer2: resb 256
+    cell_size: resb 1
+
     clear_level: resw 1
     level: resw 1
 
+    ground_img: resb 68
     player_img: resb 68
     target_img: resb 68
     box_img: resb 68
     wall_img: resb 68
-    ground_img: resb 68
+    menu_img: resb 148
+    lock_img: resb 68
 
     map_width: resb 1
     map_height: resb 1
@@ -132,8 +135,9 @@ section .text
 start:
     CALL_SYS 10h, 13h
     MOV_VAL es, 0A000h
+    mov byte [cell_size], 16
     LOAD_FILE level_file_path, clear_level, 1
-    LOAD_FILE img_file_path, player_img, 68*4
+    LOAD_FILE img_file_path, player_img, 488
     mov byte [ground_img], 25
     call start_page
     CALL_SYS 10h, 3h
@@ -143,49 +147,133 @@ start:
 start_page:
     BEGIN
     call draw_start_background
-    CALL_FN draw_string, 16, 6, title_str, 7, 0
-    CALL_FN draw_string, 17, 13, start_str, 5, 0
-    CALL_FN draw_string, 17, 15, exit_str, 4, 0
-    mov bx, 13
+    CALL_FN draw_string, 32, 12, title_str, 7, 0
+    CALL_FN draw_string, 34, 26, start_str, 5, 0
+    CALL_FN draw_string, 35, 30, exit_str, 4, 0
+    mov bx, 26
 .get_key:
     push bx
-    mov cx, 28
+    mov cx, 56
     sub cx, bx
     push cx
-    CALL_FN draw_letter, 15, bx, '>', 0
+    CALL_FN draw_letter, 30, bx, '>', 0
     pop cx
-    CALL_FN draw_letter, 15, cx, 219, 43
+    CALL_FN draw_letter, 30, cx, 219, 43
     CALL_SYS 16h, 0h
     pop bx
     CJE al, enter_key, .select_menu
     CJNE ah, up_key, .check_down
-    mov bl, 13
+    mov bl, 26
 .check_down:
     CJNE ah, down_key, .get_key
-    mov bl, 15
+    mov bl, 30
     jmp .get_key
 .select_menu:
-    CJE bl, 15, .exit
-    call clear_screen
+    CJE bl, 30, .exit
     call menu_page
 .exit:
     END 0
 
 menu_page:
     BEGIN
-    CALL_FN draw_string, 16, 2, title_str, 7, 15
-    CALL_SYS 16h, 0h
+    CALL_FN clear_screen, 43
     MOV_VAL [level], [clear_level]
-    call clear_screen
+    CALL_FN draw_string, 32, 5, title_str, 7, 0
+    mov dx, 1
+    mov ax, 14
+.outer_loop:
+    mov bx, 13
+.inner_loop:
+    push dx
+    PUSH_REG ax, bx
+    CALL_FN int_to_str, dx, level_num_str
+    POP_REG ax, bx
+    PUSH_REG ax, bx
+    shl ax, 2
+    shl bx, 2
+    sub bx, 5
+    sub ax, 16
+    mov byte [cell_size], 24
+    CALL_FN draw_shape, bx, ax, menu_img
+    mov byte [cell_size], 16
+    POP_REG ax, bx
+    pop dx
+    push dx
+    cmp dl, byte [clear_level]
+    jg .draw_lock
+    PUSH_REG ax, bx
+    CALL_FN draw_string, bx, ax, level_num_str, 2, 0
+    POP_REG ax, bx
+    jmp .skip_lock
+.draw_lock:
+    PUSH_REG ax, bx
+    shl ax, 2
+    shl bx, 2
+    sub bx, 1
+    sub ax, 12
+    CALL_FN draw_shape, bx, ax, lock_img
+    POP_REG ax, bx
+.skip_lock:
+    pop dx
+    add bx, 12
+    inc dx
+    CJNE bx, 73, .inner_loop
+    add ax, 12
+    CJNE ax, 50, .outer_loop
+.draw_select_lv:
+    movzx dx, byte [level]
+    CALL_FN int_to_str, dx, level_num_str
+    movzx ax, byte [level]
+    dec ax
+    mov bl, 5
+    div bl
+    movzx bx, ah
+    movzx dx, al
+    imul bx, 12
+    imul dx, 12
+    add bx, 13
+    add dx, 14
+    PUSH_REG bx, dx
+    CALL_FN draw_string, bx, dx, level_num_str, 2, 15
+    CALL_SYS 16h, 0h
+    POP_REG bx, dx
+    CJE al, enter_key, .play
+    push ax
+    CALL_FN draw_string, bx, dx, level_num_str, 2, 0
+    pop ax
+    mov dl, [level]
+    CJNE ah, up_key, .skip_up
+    sub dl, 5
+    jmp .skip_all
+.skip_up:
+    CJNE ah, down_key, .skip_down
+    add dl, 5
+    jmp .skip_all
+.skip_down:
+    CJNE ah, left_key, .skip_left
+    dec dl
+    jmp .skip_all
+.skip_left:
+    CJNE ah, right_key, .skip_all
+    inc dl
+.skip_all:
+    cmp dl, 1
+    jl .draw_select_lv
+    cmp dl, [clear_level]
+    jg .draw_select_lv
+    mov [level], dl
+    jmp .draw_select_lv
+.play:
     call game_page
     END 0
 
 game_page:
     BEGIN
+    CALL_FN clear_screen, 25
     CALL_FN int_to_str, word [level], level_num_str
     call load_map
     call draw_map
-    CALL_FN draw_string, 1, 1, level_str, 4, 15
+    CALL_FN draw_string, 2, 2, level_str, 4, 15
 .update:
     movzx bx, byte [player_x]
     movzx dx, byte [player_y]
@@ -204,11 +292,11 @@ game_page:
 
 complete_page:
     BEGIN
-    CALL_FN draw_string, 16, 10, complete_str, 8
+    CALL_FN draw_string, 30, 23, complete_str, 8, 0
     CALL_SYS 16h, 0h
     END 0
 
-;;;;;;;;;;util;;;;;;;;;;
+;;;;;;;;;;draw;;;;;;;;;;
 draw_shape: ;(x, y, buf)
     BEGIN
     mov bx, arg3
@@ -221,11 +309,11 @@ draw_shape: ;(x, y, buf)
     mov di, arg2
     imul di, width
     add di, arg1
-    shl di, 4
     add di, width*8
     xor dl, dl
 .outer_loop:
-    mov cx, cell_size/4
+    movzx cx, byte [cell_size]
+    shr cx, 2
     push dx
 .inner_loop:
     mov dh, [bx+si]
@@ -248,10 +336,12 @@ draw_shape: ;(x, y, buf)
     pop si
     inc si
     loop .inner_loop
-    add di, width-cell_size
+    add di, width
+    movzx dx, [cell_size]
+    sub di, dx
     pop dx
     inc dl
-    CJNE dl, cell_size, .outer_loop
+    CJNE dl, byte [cell_size], .outer_loop
     END 6
 
 draw_map_shape: ;(x, y, buf)
@@ -265,6 +355,8 @@ draw_map_shape: ;(x, y, buf)
     shr bx, 1
     add bx, arg2
     inc bx
+    shl ax, 4
+    shl bx, 4
     CALL_FN draw_shape, ax, bx, word arg3
     END 6
 
@@ -280,10 +372,10 @@ draw_string: ;(x, y, msg, len, color)
     PUSH_REG si, cx, dx
     CALL_FN draw_letter, dx, word arg2, ax, word arg5
     POP_REG si, cx, dx
-    inc dx
+    add dx, 2
     inc si
     loop .loop
-    END 8
+    END 10
 
 draw_letter: ;(x, y, char, color)
     BEGIN
@@ -300,7 +392,7 @@ draw_letter: ;(x, y, char, color)
     mov di, arg2
     imul di, width
     add di, arg1
-    shl di, 3
+    shl di, 2
     mov cx, 8
 .outer_loop:
     mov al, [ds:si]
@@ -363,7 +455,11 @@ draw_start_background:
     movzx ax, dl
     pop dx
     PUSH_REG cx, si, dx, di
-    CALL_FN draw_shape, ax, bx, dx
+    mov si, ax
+    mov di, bx
+    shl si, 4
+    shl di, 4
+    CALL_FN draw_shape, si, di, dx
     POP_REG cx, si, dx, di
     inc si
     loop .inner_loop
@@ -373,58 +469,8 @@ draw_start_background:
     call close_file
     END 0
 
-load_map:
-    BEGIN
-    mov byte [box_number], 0
-    mov word [number], 0
-    CALL_FN open_file, map_file_path
-    CALL_FN read_file, map_width, 4
-    movzx ax, byte [map_width]
-    movzx bx, byte [map_height]
-    imul ax, bx
-    shr ax, 2
-    push ax
-    CALL_FN read_file, buffer, ax
-    pop ax
-    mov cx, ax
-    xor si, si
-    xor bx, bx
-.outer_loop:
-    xor dx, dx
-    mov al, byte [buffer+si]
-.inner_loop:
-    mov ah, al
-    and ah, 3
-    CJNE ah, 3, .skip_wall
-    mov [map+bx], byte 4
-    jmp .skip_all
-.skip_wall:
-    CJNE ah, 2, .skip_box
-    inc byte [box_number]
-.skip_box:
-    mov [map+bx], ah
-.skip_all:
-    shr al, 2
-    inc bx
-    inc dx
-    CJNE dx, 4, .inner_loop
-    inc si
-    loop .outer_loop
-    CALL_FN close_file
-    END 0
-
 draw_map:
     BEGIN
-    ;background
-    mov cx, width*height/2
-    xor di, di
-.draw_background:
-    mov al, 25
-    mov ah, 25
-    mov [es:di], ax
-    add di, 2
-    loop .draw_background
-    ;object
     movzx cx, byte [map_width]
     movzx ax, byte [map_height]
     imul cx, ax
@@ -499,6 +545,7 @@ draw_map_cell: ;(idx)
 .exit:
     END 2
 
+;;;;;;;;;;util;;;;;;;;;;
 play_turn:
     BEGIN
     movzx bx, byte [player_y]
@@ -573,6 +620,46 @@ play_turn:
 .exit:
     END 0
 
+load_map:
+    BEGIN
+    mov byte [box_number], 0
+    mov word [number], 0
+    CALL_FN open_file, map_file_path
+    CALL_FN read_file, map_width, 4
+    movzx ax, byte [map_width]
+    movzx bx, byte [map_height]
+    imul ax, bx
+    shr ax, 2
+    push ax
+    CALL_FN read_file, buffer, ax
+    pop ax
+    mov cx, ax
+    xor si, si
+    xor bx, bx
+.outer_loop:
+    xor dx, dx
+    mov al, byte [buffer+si]
+.inner_loop:
+    mov ah, al
+    and ah, 3
+    CJNE ah, 3, .skip_wall
+    mov [map+bx], byte 4
+    jmp .skip_all
+.skip_wall:
+    CJNE ah, 2, .skip_box
+    inc byte [box_number]
+.skip_box:
+    mov [map+bx], ah
+.skip_all:
+    shr al, 2
+    inc bx
+    inc dx
+    CJNE dx, 4, .inner_loop
+    inc si
+    loop .outer_loop
+    CALL_FN close_file
+    END 0
+
 int_to_str: ;(x, buf)
     BEGIN
     mov ax, arg1
@@ -585,16 +672,16 @@ int_to_str: ;(x, buf)
     mov [bx+1], ah
     END 4
 
-clear_screen:
+clear_screen: ;(color)
     BEGIN
     mov ax, 0A000h
     mov es, ax
     xor di, di
     mov cx, width*height/2
-    mov al, 0
+    mov al, arg1
     mov ah, al
     rep stosw
-    END 0
+    END 2
 
 open_file: ;(file_name) -> fp
     BEGIN
