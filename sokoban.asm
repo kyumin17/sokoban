@@ -5,7 +5,9 @@ section .data
     title_str db "SOKOBAN"
     start_str db "START"
     exit_str db "EXIT"
-    complete_str db "COMPLETE"
+    complete_str db "LEVEL COMPLETE"
+    menu_str db "MENU"
+    next_str db "NEXT"
     
     map_file_path db "map/"
     level_str db "lv"
@@ -23,11 +25,17 @@ section .data
     down_key equ 50h
     right_key equ 4Dh
     left_key equ 4Bh
+    exit_key equ 1Bh
+    restart_key equ 'r'
 
     target equ 1
     box equ 2
     target_box equ 3
     wall equ 4
+
+    start_page_num equ 1
+    menu_page_num equ 2
+    game_page_num equ 3
 
 section .bss
     fp: resw 1
@@ -53,6 +61,8 @@ section .bss
     player_y: resb 1
     map: resb 200
     box_number: resb 1
+
+    page: resb 1
 
 section .text
 ;;;;;;;;;;define;;;;;;;;;;
@@ -135,11 +145,24 @@ section .text
 start:
     CALL_SYS 10h, 13h
     MOV_VAL es, 0A000h
+    mov byte [page], 1
     mov byte [cell_size], 16
     LOAD_FILE level_file_path, clear_level, 1
     LOAD_FILE img_file_path, player_img, 488
     mov byte [ground_img], 25
+.start:
+    CJNE byte [page], 1, .skip_start
     call start_page
+    jmp .start
+.skip_start:
+    CJNE byte [page], 2, .skip_menu
+    call menu_page
+    jmp .start
+.skip_menu:
+    CJNE byte [page], 3, .exit
+    call game_page
+    jmp .start
+.exit:
     CALL_SYS 10h, 3h
     CALL_SYS 21h, 4C00h
 
@@ -161,6 +184,10 @@ start_page:
     CALL_FN draw_letter, 30, cx, 219, 43
     CALL_SYS 16h, 0h
     pop bx
+    CJNE al, exit_key, .skip_quit
+    mov byte [page], 0
+    jmp .exit
+.skip_quit:
     CJE al, enter_key, .select_menu
     CJNE ah, up_key, .check_down
     mov bl, 26
@@ -170,7 +197,7 @@ start_page:
     jmp .get_key
 .select_menu:
     CJE bl, 30, .exit
-    call menu_page
+    mov byte [page], 2
 .exit:
     END 0
 
@@ -237,6 +264,10 @@ menu_page:
     CALL_FN draw_string, bx, dx, level_num_str, 2, 15
     CALL_SYS 16h, 0h
     POP_REG bx, dx
+    CJNE al, exit_key, .skip_quit
+    mov byte [page], 0
+    jmp .exit
+.skip_quit:
     CJE al, enter_key, .play
     push ax
     CALL_FN draw_string, bx, dx, level_num_str, 2, 0
@@ -264,7 +295,8 @@ menu_page:
     mov [level], dl
     jmp .draw_select_lv
 .play:
-    call game_page
+    mov byte [page], 3
+.exit:
     END 0
 
 game_page:
@@ -281,19 +313,71 @@ game_page:
     CALL_FN draw_map_shape, bx, dx, player_img
     CJE byte [box_number], 0, .complete
     CALL_SYS 16h, 0h
-    CJE al, enter_key, .exit
+    CJE al, restart_key, .exit
+    CJNE al, exit_key, .skip_quit
+    mov byte [page], 0
+    jmp .exit
+.skip_quit:
     POP_REG bx, dx
     call play_turn
     jmp .update
 .complete:
+    mov al, byte [clear_level]
+    CJNE byte [level], al, .skip_clear
+    inc byte [clear_level]
+    call update_clear_level
+.skip_clear:
     call complete_page
 .exit:
     END 0
 
 complete_page:
     BEGIN
-    CALL_FN draw_string, 30, 23, complete_str, 8, 0
+    mov cx, 60
+    mov di, width*65+width/4
+.loop:
+    PUSH_REG di, cx
+    mov ax, 0A000h
+    mov es, ax
+    mov cx, width/4-4
+    mov al, 43
+    mov ah, al
+    rep stosw
+    POP_REG di, cx
+    add di, width
+    loop .loop
+    CALL_FN draw_string, 25, 20, complete_str, 14, 0
+    mov bx, 6
+.get_key:
+    push bx
+    CALL_FN draw_string, 28, 26, menu_str, 4, bx
+    pop bx
+    push bx
+    mov cx, 192
+    sub cx, bx
+    CALL_FN draw_string, 43, 26, next_str, 4, cx
+    pop bx
     CALL_SYS 16h, 0h
+    CJNE al, exit_key, .skip_quit
+    mov byte [page], 0
+    jmp .exit
+.skip_quit:
+    CJE al, enter_key, .select_menu
+    CJNE ah, left_key, .skip_left
+    mov bx, 186
+.skip_left:
+    CJNE ah, right_key, .get_key
+    mov bx, 6
+    jmp .get_key
+.select_menu:
+    CJNE bx, 6, .skip_next
+    mov al, byte [clear_level]
+    mov byte [level], al
+    mov byte [page], 3
+    jmp .exit
+.skip_next:
+    mov byte [page], 2
+.exit:
     END 0
 
 ;;;;;;;;;;draw;;;;;;;;;;
@@ -347,14 +431,13 @@ draw_shape: ;(x, y, buf)
 draw_map_shape: ;(x, y, buf)
     BEGIN
     mov ax, 20
-    sub ax, [map_width]
+    sub al, byte [map_width]
     shr ax, 1
     add ax, arg1
-    mov bx, 13
-    sub bx, [map_height]
+    mov bx, 12
+    sub bl, byte [map_height]
     shr bx, 1
     add bx, arg2
-    inc bx
     shl ax, 4
     shl bx, 4
     CALL_FN draw_shape, ax, bx, word arg3
@@ -658,6 +741,20 @@ load_map:
     inc si
     loop .outer_loop
     CALL_FN close_file
+    END 0
+
+update_clear_level:
+    BEGIN
+    mov ah, 3Ch
+    mov dx, level_file_path
+    int 21h
+    mov [fp], ax
+    mov ah, 40h
+    mov bx, [fp]
+    mov cx, 1
+    mov dx, clear_level
+    int 21h
+    call close_file
     END 0
 
 int_to_str: ;(x, buf)
