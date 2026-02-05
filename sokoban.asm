@@ -16,6 +16,7 @@ section .data
     level_file_path db "data/level.bin", 0
     img_file_path db "data/image.bin", 0
     title_file_path db "data/title.bin", 0
+    help_file_path db "data/help.bin", 0
 
     width equ 320
     height equ 200
@@ -27,6 +28,7 @@ section .data
     left_key equ 4Bh
     exit_key equ 1Bh
     restart_key equ 'r'
+    back_key equ 'b'
 
     target equ 1
     box equ 2
@@ -36,6 +38,7 @@ section .data
     start_page_num equ 1
     menu_page_num equ 2
     game_page_num equ 3
+    help_page_num equ 4
 
 section .bss
     fp: resw 1
@@ -61,6 +64,9 @@ section .bss
     player_y: resb 1
     map: resb 200
     box_number: resb 1
+
+    history_ptr: resb 1
+    pos_history: resw 400
 
     page: resb 1
 
@@ -140,6 +146,10 @@ section .text
     mov ax, %2
     mov %1, ax
 %endmacro
+%macro MOV_VAL_1 2
+    mov al, %2
+    mov %1, al
+%endmacro
 
 ;;;;;;;;;;start;;;;;;;;;;
 start:
@@ -151,16 +161,20 @@ start:
     LOAD_FILE img_file_path, player_img, 488
     mov byte [ground_img], 25
 .start:
-    CJNE byte [page], 1, .skip_start
+    CJNE byte [page], start_page_num, .skip_start
     call start_page
     jmp .start
 .skip_start:
-    CJNE byte [page], 2, .skip_menu
+    CJNE byte [page], menu_page_num, .skip_menu
     call menu_page
     jmp .start
 .skip_menu:
-    CJNE byte [page], 3, .exit
+    CJNE byte [page], game_page_num, .skip_help
     call game_page
+    jmp .start
+.skip_help:
+    CJNE byte [page], help_page_num, .exit
+    call help_page
     jmp .start
 .exit:
     CALL_SYS 10h, 3h
@@ -306,19 +320,24 @@ game_page:
     call load_map
     call draw_map
     CALL_FN draw_string, 2, 2, level_str, 4, 15
+    mov byte [history_ptr], 0
 .update:
     movzx bx, byte [player_x]
     movzx dx, byte [player_y]
     PUSH_REG bx, dx
     CALL_FN draw_map_shape, bx, dx, player_img
+    POP_REG bx, dx
     CJE byte [box_number], 0, .complete
     CALL_SYS 16h, 0h
     CJE al, restart_key, .exit
-    CJNE al, exit_key, .skip_quit
+    CJNE al, exit_key, .undo
     mov byte [page], 0
     jmp .exit
-.skip_quit:
-    POP_REG bx, dx
+.undo:
+    CJNE al, back_key, .play
+    call undo
+    jmp .update
+.play:
     call play_turn
     jmp .update
 .complete:
@@ -371,13 +390,16 @@ complete_page:
     jmp .get_key
 .select_menu:
     CJNE bx, 6, .skip_next
-    mov al, byte [clear_level]
-    mov byte [level], al
+    inc byte [level]
     mov byte [page], 3
     jmp .exit
 .skip_next:
     mov byte [page], 2
 .exit:
+    END 0
+
+help_page:
+    BEGIN
     END 0
 
 ;;;;;;;;;;draw;;;;;;;;;;
@@ -556,6 +578,9 @@ draw_map:
     BEGIN
     movzx cx, byte [map_width]
     movzx ax, byte [map_height]
+    mov [box_img+1], byte 6
+    mov [box_img+2], byte 114
+    mov [box_img+3], byte 186
     imul cx, ax
     xor ax, ax
     xor bx, bx
@@ -669,6 +694,23 @@ play_turn:
     CJNE byte [map+bx+si], 3, .update_box
     inc byte [box_number]
 .update_box:
+    cmp byte [history_ptr], 200
+    jl .skip_save_history
+    PUSH_REG cx, dx, si
+    mov cx, bx
+    add cx, di
+    mov dx, bx
+    add dx, si
+    movzx si, byte [history_ptr]
+    shl si, 2
+    add si, pos_history
+    MOV_VAL_1 byte [si], [player_x]
+    MOV_VAL_1 byte [si+1], [player_y]
+    MOV_VAL_1 byte [si+2], cl
+    MOV_VAL_1 byte [si+3], dl
+    POP_REG cx, dx, si
+    inc byte [history_ptr]
+.skip_save_history:
     add byte [map+bx+di], box
     sub byte [map+bx+si], box
     mov dx, bx
@@ -700,6 +742,36 @@ play_turn:
     CJNE ah, right_key, .exit
     inc byte [player_x]
     jmp .exit
+.exit:
+    END 0
+
+undo:
+    BEGIN
+    CJE byte [history_ptr], 0, .exit
+    dec byte [history_ptr]
+    movzx ax, byte [player_y]
+    movzx bx, byte [map_width]
+    imul ax, bx
+    add al, byte [player_x]
+    CALL_FN draw_map_cell, ax
+    movzx si, byte [history_ptr]
+    shl si, 2
+    add si, pos_history
+    MOV_VAL word [player_x], [si]
+    movzx bx, byte [si+2]
+    movzx di, byte [si+3]
+    CJNE byte [map+di], 1, .inc_box_num
+    dec byte [box_number]
+.inc_box_num:
+    CJNE byte [map+bx], 3, .update_box
+    inc byte [box_number]
+.update_box:
+    add byte [map+di], box
+    sub byte [map+bx], box
+    push di
+    CALL_FN draw_map_cell, bx
+    pop di
+    CALL_FN draw_map_cell, di
 .exit:
     END 0
 
