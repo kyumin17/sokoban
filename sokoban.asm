@@ -8,6 +8,10 @@ section .data
     complete_str db "LEVEL COMPLETE"
     menu_str db "MENU"
     next_str db "NEXT"
+    help_str db "HELP(H)"
+    close_str db "CLOSE(X)"
+    how_str db "HOW TO PLAY"
+    control_str db "CONTROL"
     
     map_file_path db "map/"
     level_str db "lv"
@@ -29,6 +33,8 @@ section .data
     exit_key equ 1Bh
     restart_key equ 'r'
     back_key equ 'b'
+    help_key equ 'h'
+    menu_key equ 'm'
 
     target equ 1
     box equ 2
@@ -49,6 +55,7 @@ section .bss
 
     clear_level: resw 1
     level: resw 1
+    help_buf: resb 300
 
     ground_img: resb 68
     player_img: resb 68
@@ -159,6 +166,7 @@ start:
     mov byte [cell_size], 16
     LOAD_FILE level_file_path, clear_level, 1
     LOAD_FILE img_file_path, player_img, 488
+    LOAD_FILE help_file_path, help_buf, 300
     mov byte [ground_img], 25
 .start:
     CJNE byte [page], start_page_num, .skip_start
@@ -320,6 +328,7 @@ game_page:
     call load_map
     call draw_map
     CALL_FN draw_string, 2, 2, level_str, 4, 15
+    CALL_FN draw_string, 65, 2, help_str, 7, 15
     mov byte [history_ptr], 0
 .update:
     movzx bx, byte [player_x]
@@ -329,7 +338,9 @@ game_page:
     POP_REG bx, dx
     CJE byte [box_number], 0, .complete
     CALL_SYS 16h, 0h
+    CJE al, help_key, .help
     CJE al, restart_key, .exit
+    CJE al, menu_key, .menu
     CJNE al, exit_key, .undo
     mov byte [page], 0
     jmp .exit
@@ -340,6 +351,12 @@ game_page:
 .play:
     call play_turn
     jmp .update
+.help:
+    mov byte [page], help_page_num
+    jmp .exit
+.menu:
+    mov byte [page], menu_page_num
+    jmp .exit
 .complete:
     mov al, byte [clear_level]
     CJNE byte [level], al, .skip_clear
@@ -400,6 +417,34 @@ complete_page:
 
 help_page:
     BEGIN
+    CALL_FN clear_screen, 43
+    CALL_FN draw_string, 2, 2, help_str, 4, 0
+    CALL_FN draw_string, 63, 2, close_str, 8, 0
+    xor si, si
+.draw_help:
+    movzx bx, byte [help_buf+si]
+    CJE bx, 0, .get_input
+    inc si
+    movzx cx, byte [help_buf+si]
+    inc si
+    mov dx, help_buf
+    add dx, si
+    PUSH_REG si, cx
+    CALL_FN draw_string, 4, bx, dx, cx, 0
+    POP_REG si, cx
+    add si, cx
+    jmp .draw_help
+.get_input:
+    CALL_SYS 16h, 0h
+    CJE al, 'x', .play
+    CJE al, exit_key, .exit
+    jmp .get_input
+.play:
+    mov byte [page], game_page_num
+    jmp .end
+.exit:
+    mov byte [page], 0
+.end:
     END 0
 
 ;;;;;;;;;;draw;;;;;;;;;;
