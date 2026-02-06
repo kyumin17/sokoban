@@ -10,8 +10,6 @@ section .data
     next_str db "NEXT"
     help_str db "HELP(H)"
     close_str db "CLOSE(X)"
-    how_str db "HOW TO PLAY"
-    control_str db "CONTROL"
     
     map_file_path db "map/"
     level_str db "lv"
